@@ -397,7 +397,8 @@ app.delete('/deleteReport/:id', middleware.isLevelThree, (req, res) => {
 app.get('/getXML/:id', middleware.isLoggedIn, (req, res) => {
   const id = req.params.id;
 
-  const query = `SELECT 
+  const query = `
+  SELECT 
     r.report_id,
     p.program_name,
     r.report_type,
@@ -405,21 +406,31 @@ app.get('/getXML/:id', middleware.isLoggedIn, (req, res) => {
     r.problem_summary,
     r.problem,
     r.suggested_fix,
-    CONCAT(u.first_name, ' ', u.last_name) AS reported_by_name,
+    u.first_name AS reported_by_first_name,
+    u.middle_name AS reported_by_middle_name,
+    u.last_name AS reported_by_last_name,
+    u.DOB AS reported_by_dob,
+    u.address AS reported_by_address,
+    u.email AS reported_by_email,
+    u.user_level AS reported_by_level,
     r.date,
     r.reproducible,
     r.functional_area,
-    CONCAT(au.first_name, ' ', au.last_name) AS assigned_to_name,
+    au.first_name AS assigned_to_first_name,
+    au.last_name AS assigned_to_last_name,
+    resu.first_name AS resolved_by_first_name,
+    resu.last_name AS resolved_by_last_name,
+    tu.first_name AS tested_by_first_name,
+    tu.last_name AS tested_by_last_name,
     r.comments,
     r.status,
     r.priority,
     r.resolution,
     r.resolution_version,
-    CONCAT(resu.first_name, ' ', resu.last_name) AS resolved_by_name,
     r.resolved_date,
-    CONCAT(tu.first_name, ' ', tu.last_name) AS tested_by_name,
     r.test_date,
-    r.treat_as_deferred
+    r.treat_as_deferred,
+    a.functional_area
   FROM 
     Report r
   JOIN 
@@ -431,8 +442,13 @@ app.get('/getXML/:id', middleware.isLoggedIn, (req, res) => {
   LEFT JOIN 
     User resu ON r.resolved_by = resu.user_id
   LEFT JOIN 
-    User tu ON r.tested_by = tu.user_id;
+    User tu ON r.tested_by = tu.user_id
+  LEFT JOIN 
+    Area a ON p.program_name = a.program_name
+  WHERE 
+    r.report_id = ?;
   `; 
+
   connection.query(query, [id], (err, results) => {
     if (err) {
       console.error(err);
@@ -443,14 +459,30 @@ app.get('/getXML/:id', middleware.isLoggedIn, (req, res) => {
       return res.status(404).send('No report found with that ID.');
     }
 
-    const xml = builder.buildObject({ report: results[0] });
+    const reportData = {
+      report: {
+        ...results[0],
+        reported_by: {
+          first_name: results[0].reported_by_first_name,
+          last_name: results[0].reported_by_last_name,
+          dob: results[0].reported_by_dob,
+          address: results[0].reported_by_address,
+          email: results[0].reported_by_email,
+          level: results[0].reported_by_level
+        },
+        // Continue to structure the rest of the employee details in a similar way
+      }
+    };
+
+    const xml = builder.buildObject(reportData);
 
     res.setHeader('Content-Type', 'application/xml');
     res.setHeader('Content-Disposition', 'attachment; filename=report.xml');
-    
     res.send(xml);
   });
 });
+
+
 
 app.get('/downloadAttachment/:id', middleware.isLoggedIn, (req, res) => {
   const id = req.params.id;
@@ -687,6 +719,37 @@ app.delete("/deleteProgram/:id", middleware.isLevelThree, (req, res) => {
       res.redirect("/admin")
     });
 });
+
+app.get('/addArea', middleware.isLevelThree, (req, res) => {
+  res.render('admin/Areas/add_area')
+})
+
+app.post('/addArea', middleware.isLevelThree, (req, res) => {
+   let { pName, fArea } = req.body;
+   connection.query('Insert Into Area (program_name, functional_area) Values (?, ?)', [pName, fArea], (err, result) => {
+     if(err){
+       console.log(err);
+       return res.status(500).send("Error Status 500! Database Error!");
+     }
+     req.flash("success", "Program Details Added Successfully!");
+     res.redirect("/admin");
+   });
+});
+
+app.get('/getFunctionalAreas/:programName', (req, res) => {
+  const programName = req.params.programName;
+  connection.query('SELECT area_id, functional_area FROM Area WHERE program_name = ?', [programName], (err, results) => {
+      if (err) {
+          console.error('Error fetching functional areas:', err);
+          res.status(500).send('Server error');
+      } else {
+          res.json(results); 
+      }
+  });
+});
+
+
+
 
 
 app.get('/admin', (req, res) => {
